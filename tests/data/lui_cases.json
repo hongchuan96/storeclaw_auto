@@ -1,0 +1,62 @@
+[
+  {
+    "name": "shopify_list_products",
+    "prompt": "帮我查询 Shopify 店铺最近上架的 5 个商品，展示商品标题、价格和库存状态",
+    "session": {
+      "continue_previous": false
+    },
+    "assertions": {
+      "response_not_empty": true,
+      "run_status": "COMPLETED",
+      "skill_called": ["shopify-admin"],
+      "tool_called": ["run_shell_command"],
+      "contains_any": ["title", "price", "商品", "产品", "库存"],
+      "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
+    }
+  },
+  {
+    "name": "shopify_get_orders",
+    "prompt": "查询 Shopify 店铺最近 10 笔订单，显示订单号、金额和状态",
+    "session": {
+      "continue_previous": false
+    },
+    "assertions": {
+      "response_not_empty": true,
+      "run_status": "COMPLETED",
+      "skill_called": ["shopify-admin"],
+      "tool_called": ["run_shell_command"],
+      "contains_any": ["订单", "order", "金额", "状态", "PAID", "PENDING", "FULFILLED"],
+      "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
+    }
+  },
+  {
+    "name": "shopify_create_product_confirmation",
+    "prompt": "帮我在 Shopify 创建一个新商品：标题 'Test Product'，价格 $29.99,库存 100",
+    "session": {
+      "continue_previous": false
+    },
+    "assertions": {
+      "response_not_empty": true,
+      "run_status": "COMPLETED",
+      "skill_called": ["shopify-admin"],
+      "tool_called": ["run_shell_command"],
+      "contains_any": ["创建成功", "商品已创建", "Test Product", "29.99", "100"],
+      "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
+    }
+  },
+  {
+    "name": "shopify_create_product_update",
+    "prompt": "商品名称给我改成：上下文测试商品",
+    "session": {
+      "continue_previous": true
+    },
+    "assertions": {
+      "response_not_empty": true,
+      "run_status": "COMPLETED",
+      "skill_called": ["shopify-admin"],
+      "tool_called": ["run_shell_command"],
+      "contains_all": ["上下文测试商品", "修改成功", "更新成功", "商品名称"],
+      "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
+    }
+  }
+]
