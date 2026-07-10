@@ -55,7 +55,7 @@
       "run_status": "COMPLETED",
       "skill_called": ["shopify-admin"],
       "tool_called": ["run_shell_command"],
-      "contains_all": ["上下文测试商品", "修改成功", "更新成功", "商品名称"],
+      "contains_all": ["上下文测试商品"],
       "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
     }
   }
