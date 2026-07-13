@@ -67,16 +67,22 @@ STORECLAW_RUNS_POLL_INTERVAL=5
 
 配置说明：
 
-| 变量                             | 说明                                                                  |
-| -------------------------------- | --------------------------------------------------------------------- |
-| `STORECLAW_BASE_URL`           | StoreClaw 测试环境地址                                                |
-| `STORECLAW_EMAIL`              | 登录账号                                                              |
-| `STORECLAW_PASSWORD`           | 登录密码                                                              |
-| `STORECLAW_CASES_FILE`         | JSON 用例文件路径，支持相对项目根目录，也支持绝对路径                 |
-| `STORECLAW_TIMEOUT`            | 单个 HTTP 请求的等待超时时间，单位秒；`1800` 等于 30 分钟           |
-| `STORECLAW_MAX_CONCURRENCY`    | 最大并发会话链数量，范围`1` 到 `10`                               |
-| `STORECLAW_RUNS_POLL_TIMEOUT`  | 收到`RunCompleted` 后，如果 session runs 暂时为空，最多继续等待多久 |
-| `STORECLAW_RUNS_POLL_INTERVAL` | session runs 为空时的轮询间隔，单位秒                                 |
+| 变量 | 说明 |
+| --- | --- |
+| `STORECLAW_BASE_URL` | StoreClaw 环境地址。QA 使用 `https://www.storeclawdev.com`，线上使用 `https://www.storeclaw.ai` |
+| `STORECLAW_EMAIL` | 登录账号 |
+| `STORECLAW_PASSWORD` | 登录密码 |
+| `STORECLAW_CASES_FILE` | JSON 用例文件路径，支持相对项目根目录，也支持绝对路径 |
+| `STORECLAW_TIMEOUT` | 单个 HTTP 请求的等待超时时间，单位秒；`1800` 等于 30 分钟 |
+| `STORECLAW_MAX_CONCURRENCY` | 最大并发会话链数量，范围 `1` 到 `10` |
+| `STORECLAW_RUNS_POLL_TIMEOUT` | 收到 `RunCompleted` 后，如果 session runs 暂时为空，最多继续等待多久 |
+| `STORECLAW_RUNS_POLL_INTERVAL` | session runs 为空时的轮询间隔，单位秒 |
+
+如果要跑线上环境，直接把 `.env` 里的域名改成：
+
+```env
+STORECLAW_BASE_URL=https://www.storeclaw.ai
+```
 
 `.env` 放真实账号密码，已被 `.gitignore` 忽略；`.env.example` 只保留模板，不放真实敏感信息。
 
@@ -349,7 +355,6 @@ python3 -m pytest tests/test_lui_chat_flow.py -q -rs
 重点检查：
 
 ```text
-STORECLAW_BASE_URL
 STORECLAW_EMAIL
 STORECLAW_PASSWORD
 ```

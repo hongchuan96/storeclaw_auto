@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import platform
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -188,15 +189,36 @@ def _html_report(summary: dict[str, Any], metadata: dict[str, Any], items: list[
       border-radius: 8px;
       overflow: hidden;
     }}
+    .case > summary {{
+      list-style: none;
+      cursor: pointer;
+      color: inherit;
+      font-weight: inherit;
+    }}
+    .case > summary::-webkit-details-marker {{ display: none; }}
     .case-head {{
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) auto auto;
+      grid-template-columns: auto minmax(220px, 1fr) auto auto;
       gap: 12px;
-      align-items: start;
+      align-items: center;
       padding: 16px 18px;
-      border-bottom: 1px solid var(--line);
       background: #fbfcfe;
     }}
+    .case[open] .case-head {{ border-bottom: 1px solid var(--line); }}
+    .case-toggle {{
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      color: var(--muted);
+      background: #ffffff;
+      font-size: 15px;
+      line-height: 1;
+      transition: transform .15s ease;
+    }}
+    .case[open] .case-toggle {{ transform: rotate(90deg); }}
     .case-title {{ font-weight: 800; font-size: 16px; word-break: break-word; }}
     .case-node {{ margin-top: 3px; color: var(--muted); font-size: 12px; word-break: break-all; }}
     .case-body {{ padding: 16px 18px 18px; }}
@@ -223,14 +245,56 @@ def _html_report(summary: dict[str, Any], metadata: dict[str, Any], items: list[
       padding: 10px 12px;
       font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }}
+    .response-view {{
+      display: grid;
+      gap: 8px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }}
+    .response-step,
+    .response-line {{
+      overflow-wrap: anywhere;
+      border: 1px solid #e4eaf2;
+      border-radius: 6px;
+      background: #ffffff;
+      padding: 8px 10px;
+      font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }}
+    .response-step {{
+      color: #344054;
+      background: #f1f5f9;
+    }}
+    .response-command {{
+      border: 1px solid #cfd8e6;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #ffffff;
+    }}
+    .response-command-label {{
+      padding: 6px 10px;
+      border-bottom: 1px solid #e4eaf2;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      background: #eef3f8;
+    }}
+    .response-command pre {{
+      border: 0;
+      border-radius: 0;
+      background: #ffffff;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }}
     details {{ margin-top: 10px; }}
-    summary {{ cursor: pointer; color: var(--accent); font-weight: 700; }}
+    details > summary:not(.case-head) {{ cursor: pointer; color: var(--accent); font-weight: 700; }}
     .empty {{ color: var(--muted); }}
     @media (max-width: 900px) {{
       main {{ padding: 24px 14px 36px; }}
       .summary {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .info-grid {{ grid-template-columns: 1fr; }}
-      .case-head {{ grid-template-columns: 1fr; }}
+      .case-head {{ grid-template-columns: auto 1fr; }}
       .kv {{ grid-template-columns: 1fr; }}
     }}
   </style>
@@ -281,33 +345,39 @@ def _html_case_card(index: int, item: dict[str, Any]) -> str:
     tool_names = details.get("tool_names") if isinstance(details.get("tool_names"), list) else []
     skill_names = details.get("skill_names") if isinstance(details.get("skill_names"), list) else []
     event_names = details.get("event_names") if isinstance(details.get("event_names"), list) else []
+    kv_items = [
+        _kv("Session ID", details.get("session_id")),
+        _kv("继续上文", _yes_no(details.get("continue_previous"))),
+        _kv("Run ID", details.get("latest_run_id")),
+        _kv("Run 状态", details.get("latest_run_status")),
+        _kv("Run 耗时", _seconds(details.get("latest_run_duration_seconds"))),
+        _kv("SSE 事件数", details.get("events_count")),
+        _kv("RunCompleted", _yes_no(details.get("run_completed_event_received"))),
+        _kv("Runs 数量", details.get("runs_count")),
+        _kv("Runs 轮询", details.get("runs_poll_attempts")),
+        _kv("断言结果", _yes_no(details.get("assertions_passed"))),
+        _kv("会话链", _chain(details.get("chain_index"), details.get("chain_position"))),
+        _kv("请求超时", _seconds(details.get("timeout_seconds"))),
+    ]
+    kv_html = "\n      ".join(part for part in kv_items if part)
+    open_attr = " open" if item.get("outcome") == "failed" else ""
 
-    return f"""<article class="case">
-  <div class="case-head">
+    return f"""<details class="case"{open_attr}>
+  <summary class="case-head">
+    <span class="case-toggle" aria-hidden="true">›</span>
     <div>
       <div class="case-title">#{index} {html.escape(item["name"])}</div>
       <div class="case-node">{html.escape(item["nodeid"])}</div>
     </div>
     <span class="badge {html.escape(item["outcome"])}">{_outcome_label(item["outcome"])}</span>
     <span class="badge">{item["duration_seconds"]}s</span>
-  </div>
+  </summary>
   <div class="case-body">
     <div class="kv">
-      {_kv("Session ID", details.get("session_id"))}
-      {_kv("继续上文", _yes_no(details.get("continue_previous")))}
-      {_kv("Run ID", details.get("latest_run_id"))}
-      {_kv("Run 状态", details.get("latest_run_status"))}
-      {_kv("Run 耗时", _seconds(details.get("latest_run_duration_seconds")))}
-      {_kv("SSE 事件数", details.get("events_count"))}
-      {_kv("RunCompleted", _yes_no(details.get("run_completed_event_received")))}
-      {_kv("Runs 数量", details.get("runs_count"))}
-      {_kv("Runs 轮询", details.get("runs_poll_attempts"))}
-      {_kv("断言结果", _yes_no(details.get("assertions_passed")))}
-      {_kv("会话链", _chain(details.get("chain_index"), details.get("chain_position")))}
-      {_kv("请求超时", _seconds(details.get("timeout_seconds")))}
+      {kv_html}
     </div>
     {_text_block("Prompt", details.get("prompt"))}
-    {_text_block("Agent 回复", response_text)}
+    {_agent_response_block("Agent 回复", response_text)}
     {_text_block("命中 Skill", ", ".join(str(name) for name in skill_names) if skill_names else "")}
     {_text_block("工具调用", ", ".join(str(name) for name in tool_names) if tool_names else "")}
     {_text_block("SSE 事件类型", ", ".join(str(name) for name in event_names) if event_names else "")}
@@ -317,11 +387,13 @@ def _html_case_card(index: int, item: dict[str, Any]) -> str:
     {_details_block("标准输出", item.get("stdout", ""))}
     {_details_block("标准错误", item.get("stderr", ""))}
   </div>
-</article>"""
+</details>"""
 
 
 def _kv(label: str, value: Any) -> str:
     text = _display(value)
+    if not text:
+        return ""
     return f"""<div><span>{html.escape(label)}</span><b>{html.escape(text)}</b></div>"""
 
 
@@ -337,6 +409,125 @@ def _text_block(title: str, content: Any) -> str:
   <div class="block-title">{html.escape(title)}</div>
   <div class="text-box">{html.escape(text)}</div>
 </div>"""
+
+
+def _agent_response_block(title: str, content: Any) -> str:
+    text = _display(content)
+    if not text:
+        return _text_block(title, "")
+
+    parts = _agent_response_parts(text)
+    body = "\n".join(_agent_response_part_html(part) for part in parts)
+    return f"""<div class="block">
+  <div class="block-title">{html.escape(title)}</div>
+  <div class="response-view">{body}</div>
+</div>"""
+
+
+def _agent_response_parts(text: str) -> list[dict[str, str]]:
+    lines = [line.strip() for line in text.replace("\r\n", "\n").split("\n")]
+    lines = [line for line in lines if line]
+    parts: list[dict[str, str]] = []
+    buffer: list[str] = []
+
+    def flush_buffer() -> None:
+        if buffer:
+            parts.append({"type": "text", "text": _compact_response_text(buffer)})
+            buffer.clear()
+
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if _is_completed_line(line):
+            flush_buffer()
+            parts.append({"type": "step", "text": line})
+            index += 1
+            continue
+        if line == "bash" and index + 2 < len(lines) and lines[index + 1] == "-c":
+            flush_buffer()
+            parts.append({"type": "command", "label": "bash -c", "text": _format_shell_command(lines[index + 2])})
+            index += 3
+            continue
+        if _looks_like_json(line):
+            flush_buffer()
+            parts.append({"type": "command", "label": "JSON", "text": _pretty_json(line)})
+            index += 1
+            continue
+        buffer.append(line)
+        index += 1
+
+    flush_buffer()
+    return parts
+
+
+def _agent_response_part_html(part: dict[str, str]) -> str:
+    text = html.escape(part["text"])
+    if part["type"] == "step":
+        return f"""<div class="response-step">{text}</div>"""
+    if part["type"] == "command":
+        label = html.escape(part.get("label", "命令"))
+        return f"""<div class="response-command">
+  <div class="response-command-label">{label}</div>
+  <pre>{text}</pre>
+</div>"""
+    return f"""<div class="response-line">{text}</div>"""
+
+
+def _is_completed_line(line: str) -> bool:
+    return bool(re.search(r"\bcompleted in \d+(?:\.\d+)?s\.?$", line))
+
+
+def _looks_like_json(line: str) -> bool:
+    return (line.startswith("{") and line.endswith("}")) or (line.startswith("[") and line.endswith("]"))
+
+
+def _pretty_json(line: str) -> str:
+    try:
+        return json.dumps(json.loads(line), ensure_ascii=False, indent=2)
+    except json.JSONDecodeError:
+        return line
+
+
+def _format_shell_command(command: str) -> str:
+    return re.sub(r"\s+(-H|-d|--data|--data-raw)\s+", r"\n  \1 ", command)
+
+
+def _compact_response_text(lines: list[str]) -> str:
+    compacted: list[str] = []
+    current = ""
+    for line in lines:
+        if not current:
+            current = line
+            continue
+        if _should_join_response_line(current, line):
+            current += _response_join_separator(current, line) + line
+        else:
+            compacted.append(current)
+            current = line
+    if current:
+        compacted.append(current)
+    return "\n".join(compacted)
+
+
+def _should_join_response_line(previous: str, line: str) -> bool:
+    if len(previous) > 80 or len(line) > 40:
+        return False
+    if not re.search(r"[\u4e00-\u9fff]", previous + line):
+        return False
+    cjk_or_punctuation = re.compile(r"^[\u4e00-\u9fffA-Za-z0-9 ，。！？、：；（）()%-]+$")
+    return bool(cjk_or_punctuation.match(previous) and cjk_or_punctuation.match(line))
+
+
+def _response_join_separator(previous: str, line: str) -> str:
+    if not previous or not line:
+        return ""
+    if previous[-1].isspace() or line[0].isspace():
+        return ""
+    previous_is_ascii = previous[-1].isascii() and previous[-1].isalnum()
+    line_is_ascii = line[0].isascii() and line[0].isalnum()
+    if previous_is_ascii != line_is_ascii:
+        return " "
+    return ""
 
 
 def _details_block(title: str, content: Any) -> str:
