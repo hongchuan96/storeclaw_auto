@@ -1,0 +1,56 @@
+[
+  {
+    "name": "amazon_list_orders",
+    "prompt": "查询我 Amazon 美国站最近 10 笔订单，显示订单号、金额和状态",
+    "session": {
+      "continue_previous": false
+    },
+    "assertions": {
+      "response_not_empty": true,
+      "run_status": "COMPLETED",
+      "skill_called": ["amazon-admin"],
+      "tool_called": ["run_shell_command"],
+      "contains_any": ["订单", "order", "金额", "状态", "ATVPDKIKX0DER"],
+      "judge": {
+        "enabled": true,
+        "rubric": "判断回复是否完成了查询 Amazon 美国站最近 10 笔订单并展示订单号、金额、状态的意图。通过标准：调用 Amazon 能力；展示订单号（AmazonOrderId）、金额（OrderTotal）、状态（OrderStatus）；若无订单明确说明为空也算通过；不得编造订单数据；使用的是美国站 MarketplaceId ATVPDKIKX0DER。"
+      }
+    }
+  },
+  {
+    "name": "amazon_search_catalog",
+    "prompt": "在 Amazon 美国站搜索关键词 'men t-shirt' 的商品目录，展示前 5 条 ASIN 和商品标题",
+    "session": {
+      "continue_previous": false
+    },
+    "assertions": {
+      "response_not_empty": true,
+      "run_status": "COMPLETED",
+      "skill_called": ["amazon-admin"],
+      "tool_called": ["run_shell_command"],
+      "contains_any": ["ASIN", "asin", "标题", "title", "商品", "catalog"],
+      "judge": {
+        "enabled": true,
+        "rubric": "判断回复是否完成了在 Amazon 美国站搜索 'men t-shirt' 目录的意图。通过标准：调用 Catalog API；展示 ASIN 和商品标题；若返回空结果明确说明；返回空结果不视为失败，接口正常响应即可通过；不得编造 ASIN。"
+      }
+    }
+  },
+  {
+    "name": "amazon_get_listing",
+    "prompt": "查询我 Amazon 美国站 ASIN B0H3KJ8Y9Y 的 Listing 详情，包括标题、价格和库存状态",
+    "session": {
+      "continue_previous": false
+    },
+    "assertions": {
+      "response_not_empty": true,
+      "run_status": "COMPLETED",
+      "skill_called": ["amazon-admin"],
+      "tool_called": ["run_shell_command"],
+      "contains_any": ["listing", "ASIN", "标题", "价格", "库存", "找不到", "不存在"],
+      "judge": {
+        "enabled": true,
+        "rubric": "判断回复是否尝试查询指定 ASIN 的 Listing 详情。通过标准：调用 Listings Items API；若 ASIN 存在，展示标题、价格、库存状态；若 ASIN 不存在或非本账号商品，清楚说明原因；不得编造 Listing 信息。"
+      }
+    }
+  }
+]

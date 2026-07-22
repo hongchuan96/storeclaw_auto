@@ -11,7 +11,10 @@
       "skill_called": ["shopify-admin"],
       "tool_called": ["run_shell_command"],
       "contains_any": ["title", "price", "商品", "产品", "库存"],
-      "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
+      "judge": {
+        "enabled": true,
+        "rubric": "判断回复是否完成了查询 Shopify 最近上架 5 个商品的意图。通过标准：确实调用 Shopify 能力；回答展示或清楚说明最近商品信息；重点覆盖商品标题、价格、库存状态。若店铺数据为空，明确说明为空也可以通过；不得编造商品。"
+      }
     }
   },
   {
@@ -25,8 +28,10 @@
       "run_status": "COMPLETED",
       "skill_called": ["shopify-admin"],
       "tool_called": ["run_shell_command"],
-      "contains_any": ["订单", "order", "金额", "状态", "PAID", "PENDING", "FULFILLED"],
-      "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
+      "judge": {
+        "enabled": true,
+        "rubric": "判断回复是否完成了查询 Shopify 最近 10 笔订单并展示订单号、金额、状态的意图。若实际存在订单，应展示订单号、金额、状态；若 Shopify 返回无订单，明确说明当前无订单且没有编造订单也算满足。"
+      }
     }
   },
   {
@@ -40,8 +45,11 @@
       "run_status": "COMPLETED",
       "skill_called": ["shopify-admin"],
       "tool_called": ["run_shell_command"],
-      "contains_any": ["创建成功", "商品已创建", "Test Product", "29.99", "100"],
-      "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
+      "contains_all": [ "Test Product", "29.99", "100"],
+      "judge": {
+        "enabled": true,
+        "rubric": "判断回复是否完成了在 Shopify 创建商品的意图。通过标准：调用 Shopify 能力；围绕标题 Test Product、价格 29.99、库存 100 执行创建或明确说明创建结果；如果创建失败，应清楚说明失败原因。不得把未执行的创建说成成功。"
+      }
     }
   },
   {
@@ -56,7 +64,10 @@
       "skill_called": ["shopify-admin"],
       "tool_called": ["run_shell_command"],
       "contains_all": ["上下文测试商品"],
-      "not_contains": ["系统错误", "无法处理", "traceback", "Traceback"]
+      "judge": {
+        "enabled": true,
+        "rubric": "判断回复是否理解上一轮创建商品的上下文，并完成将商品名称改为“上下文测试商品”的意图。通过标准：复用当前会话上下文；调用 Shopify 能力；明确说明修改结果；不得修改无关商品或在缺少目标时编造成功。"
+      }
     }
   }
 ]

@@ -6,6 +6,7 @@ import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
@@ -18,26 +19,42 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from clients.storeclaw_client import StoreClawClient  # noqa: E402
+from clients.judge_client import JudgeClient, JudgeRequest  # noqa: E402
 
 
 load_dotenv()
 LOGGER = logging.getLogger(__name__)
-DEFAULT_CASES_FILE = PROJECT_ROOT / "tests/data/lui_cases.json"
+DEFAULT_CASES_PATH = PROJECT_ROOT / "tests/data"
 RUN_COMPLETED_EVENT = "RunCompleted"
 
 
 def _load_lui_cases() -> list[dict[str, Any]]:
-    cases_file = Path(os.getenv("STORECLAW_CASES_FILE", str(DEFAULT_CASES_FILE)))
-    if not cases_file.is_absolute():
-        cases_file = PROJECT_ROOT / cases_file
-    if not cases_file.exists():
-        raise FileNotFoundError(f"LUI cases file not found: {cases_file}")
+    cases_path = Path(os.getenv("STORECLAW_CASES_FILE", str(DEFAULT_CASES_PATH)))
+    if not cases_path.is_absolute():
+        cases_path = PROJECT_ROOT / cases_path
+    case_files = _case_files(cases_path)
 
-    with cases_file.open(encoding="utf-8") as file:
-        cases = json.load(file)
-    if not isinstance(cases, list) or not cases:
-        raise ValueError(f"LUI cases file must contain a non-empty JSON list: {cases_file}")
+    cases: list[dict[str, Any]] = []
+    for case_file in case_files:
+        with case_file.open(encoding="utf-8") as file:
+            file_cases = json.load(file)
+        if not isinstance(file_cases, list) or not file_cases:
+            raise ValueError(f"LUI cases file must contain a non-empty JSON list: {case_file}")
+        cases.extend(file_cases)
+    if not cases:
+        raise ValueError(f"LUI cases path does not contain any cases: {cases_path}")
     return [_normalize_case(case, index) for index, case in enumerate(cases, start=1)]
+
+
+def _case_files(cases_path: Path) -> list[Path]:
+    if cases_path.is_file():
+        return [cases_path]
+    if cases_path.is_dir():
+        case_files = sorted(path for path in cases_path.glob("*.json") if path.is_file())
+        if not case_files:
+            raise FileNotFoundError(f"LUI cases directory has no JSON files: {cases_path}")
+        return case_files
+    raise FileNotFoundError(f"LUI cases path not found: {cases_path}")
 
 
 def _normalize_case(case: Any, index: int) -> dict[str, Any]:
@@ -263,6 +280,16 @@ def _run_lui_case(
         details["tool_names"] = sorted(_tool_call_names(latest_run))
         details["skill_names"] = sorted(_skill_names(latest_run, events, response_text))
         _assert_lui_result(assertions, response_text, latest_run, events)
+        _maybe_judge_lui_result(
+            case_name=case_name,
+            prompt=prompt,
+            assertions=assertions,
+            response_text=response_text,
+            latest_run=latest_run,
+            events=events,
+            details=details,
+            record=record,
+        )
         details["assertions_passed"] = True
         return _case_result(case_name, "passed", started_at, logs=logs, details=details), session_id
     except Exception:
@@ -443,6 +470,148 @@ def _assert_lui_result(
                 "response_text": response_text,
                 "latest_run": latest_run,
             }
+
+
+def _maybe_judge_lui_result(
+    case_name: str,
+    prompt: str,
+    assertions: dict[str, Any],
+    response_text: str,
+    latest_run: dict[str, Any],
+    events: list[dict[str, Any]],
+    details: dict[str, Any],
+    record: Callable[[str], None],
+) -> None:
+    judge_config = assertions.get("judge")
+    if not isinstance(judge_config, dict) or not judge_config.get("enabled"):
+        return
+
+    pass_score = _judge_pass_score()
+    rubric = str(judge_config.get("rubric") or "").strip()
+    if not rubric:
+        rubric = (
+            "判断 StoreClaw 的回复是否满足用户请求。优先看是否完成用户意图、是否如实说明外部系统结果、"
+            "是否避免明显幻觉或错误承诺。"
+        )
+    scoring_criteria = _judge_scoring_criteria(assertions)
+
+    client: JudgeClient | None = None
+    try:
+        client = JudgeClient()
+        judge_request = JudgeRequest(
+            case_name=case_name,
+            prompt=prompt,
+            rubric=rubric,
+            scoring_criteria=scoring_criteria,
+            response_text=response_text,
+            run_status=str(latest_run.get("status") or ""),
+            skill_names=sorted(_skill_names(latest_run, events, response_text)),
+            tool_names=sorted(_tool_call_names(latest_run)),
+            event_names=sorted({str(event.get("event")) for event in events if event.get("event")}),
+        )
+        details["judge_input"] = {
+            "model": client.model,
+            "base_url": client.base_url,
+            "pass_score": pass_score,
+            "request": client.evidence_payload(judge_request),
+        }
+        result = client.evaluate(judge_request, pass_score=pass_score)
+    except Exception as exc:
+        details["judge"] = {
+            "enabled": True,
+            "passed": False,
+            "pass_score": pass_score,
+            "error": traceback.format_exc(),
+        }
+        record(f"judge error: {exc}")
+        if _bool_env("STORECLAW_JUDGE_FAIL_ON_ERROR", True):
+            raise
+    else:
+        details["judge"] = {
+            "enabled": result.enabled,
+            "model": result.model,
+            "score": result.score,
+            "pass_score": pass_score,
+            "passed": result.passed,
+            "reason": result.reason,
+            "strengths": result.strengths,
+            "issues": result.issues,
+            "dimension_scores": result.dimension_scores,
+            "expected_behavior": result.expected_behavior,
+            "actual_behavior": result.actual_behavior,
+            "raw_response": result.raw_response,
+        }
+        if not (result.score >= pass_score and result.passed):
+            record(f"judge failed: score={result.score} pass_score={pass_score} passed={result.passed}")
+            raise AssertionError(details["judge"])
+    finally:
+        if client is not None:
+            client.close()
+
+
+def _judge_pass_score() -> int:
+    raw_value = os.getenv("STORECLAW_JUDGE_PASS_SCORE", "80")
+    try:
+        score = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("STORECLAW_JUDGE_PASS_SCORE must be an integer from 0 to 100") from exc
+    if score < 0 or score > 100:
+        raise ValueError("STORECLAW_JUDGE_PASS_SCORE must be between 0 and 100")
+    return score
+
+
+def _judge_scoring_criteria(assertions: dict[str, Any]) -> dict[str, Any]:
+    tool_expected = _string_list(assertions.get("tool_called"), "tool_called")
+    skill_expected = _string_list(assertions.get("skill_called"), "skill_called")
+    criteria = {
+        "intent_fulfillment": {
+            "label": "满足用户核心意图",
+            "weight": 50,
+            "not_applicable": False,
+            "description": "判断 StoreClaw 是否完成用户的核心请求，并且没有遗漏关键业务目标。",
+        },
+        "tool_correctness": {
+            "label": "工具调用正确性",
+            "weight": 20,
+            "not_applicable": not bool(tool_expected),
+            "expected": tool_expected,
+            "description": "仅当 case 配置 tool_called 时适用。判断是否调用了期望工具，以及工具调用是否服务于用户请求。",
+        },
+        "skill_correctness": {
+            "label": "Skill 命中正确性",
+            "weight": 20,
+            "not_applicable": not bool(skill_expected),
+            "expected": skill_expected,
+            "description": "仅当 case 配置 skill_called 时适用。判断是否命中了期望 skill，以及 skill 是否匹配业务领域。",
+        },
+        "clarity": {
+            "label": "输出结果表达清晰",
+            "weight": 10,
+            "not_applicable": False,
+            "description": "判断最终回复是否清楚、可读，是否明确说明结果、空数据、失败原因或下一步。",
+        },
+    }
+    return _redistribute_not_applicable_weights(criteria)
+
+
+def _redistribute_not_applicable_weights(criteria: dict[str, Any]) -> dict[str, Any]:
+    redistributed_weight = 0
+    for item in criteria.values():
+        if item["not_applicable"]:
+            redistributed_weight += int(item["weight"])
+            item["effective_weight"] = 0
+        else:
+            item["effective_weight"] = int(item["weight"])
+    criteria["intent_fulfillment"]["effective_weight"] += redistributed_weight
+    criteria["intent_fulfillment"]["redistributed_from_not_applicable"] = redistributed_weight
+    return criteria
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _run_duration_seconds(run: dict[str, Any]) -> float | None:
